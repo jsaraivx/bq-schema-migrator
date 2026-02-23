@@ -9,6 +9,10 @@ from google.protobuf.struct_pb2 import Struct
 # Load variables from .env file (if present). CLI args take precedence.
 load_dotenv()
 
+# Resolve credentials early.
+load_credentials()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy Scheduled Queries to BigQuery")
     parser.add_argument(
@@ -37,9 +41,6 @@ def main():
         parser.error("--project-id is required (or set GCP_PROJECT_ID in .env)")
     if not args.dataset_id:
         parser.error("--dataset-id is required (or set GCP_DATASET_ID in .env)")
-
-    # Auto-discover credentials from credentials/ folder (or use GOOGLE_APPLICATION_CREDENTIALS)
-    load_credentials()
 
     # Client for the Data Transfer Service (responsible for Scheduled Queries)
     client = bigquery_datatransfer_v1.DataTransferServiceClient()
@@ -78,7 +79,10 @@ def main():
         )
 
         try:
-            # Create the transfer (scheduled query) configuration
+            # Note: service_account_name is intentionally omitted.
+            # If an org policy (iam.disableCrossProjectServiceAccountUsage) is
+            # active, passing it causes a 403. The SA credentials set via
+            # GOOGLE_APPLICATION_CREDENTIALS are used automatically by the API.
             response = client.create_transfer_config(
                 request={
                     "parent": parent,

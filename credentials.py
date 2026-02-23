@@ -7,18 +7,23 @@ Priority order:
   1. GOOGLE_APPLICATION_CREDENTIALS already set in the environment / .env
   2. Single .json file found inside credentials/
   3. Error — cannot proceed without credentials
+
+Returns:
+  str — the absolute path to the resolved key file.
 """
 
 import os
 import glob
 
 
-def load_credentials():
+def load_credentials() -> str:
+    """Resolve, set, and return the path to the Service Account JSON key."""
+
     # 1. Already explicitly set — respect it and do nothing.
     if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"):
         path = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
         print(f"[auth] Using credentials from environment: {path}")
-        return
+        return path
 
     # 2. Auto-discover any .json file inside credentials/
     matches = glob.glob("credentials/*.json")
@@ -27,7 +32,7 @@ def load_credentials():
         path = os.path.abspath(matches[0])
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = path
         print(f"[auth] Service Account key auto-discovered: {path}")
-        return
+        return path
 
     if len(matches) > 1:
         raise RuntimeError(

@@ -1,7 +1,11 @@
 import os
 import glob
 import argparse
+from dotenv import load_dotenv
 from google.cloud import bigquery
+
+# Load variables from .env file (if present). CLI args take precedence.
+load_dotenv()
 
 def run_query(client, query, file_name):
     print(f"Running {file_name}...")
@@ -15,11 +19,25 @@ def run_query(client, query, file_name):
 
 def main():
     parser = argparse.ArgumentParser(description="BigQuery Schema Migrator")
-    parser.add_argument("--project-id", required=True, help="GCP project ID")
-    parser.add_argument("--dataset-id", required=True, help="BigQuery dataset ID")
+    parser.add_argument(
+        "--project-id",
+        default=os.getenv("GCP_PROJECT_ID"),
+        help="GCP project ID (or set GCP_PROJECT_ID in .env)",
+    )
+    parser.add_argument(
+        "--dataset-id",
+        default=os.getenv("GCP_DATASET_ID"),
+        help="BigQuery dataset ID (or set GCP_DATASET_ID in .env)",
+    )
     args = parser.parse_args()
 
-    # The client picks up credentials automatically via GOOGLE_APPLICATION_CREDENTIALS
+    if not args.project_id:
+        parser.error("--project-id is required (or set GCP_PROJECT_ID in .env)")
+    if not args.dataset_id:
+        parser.error("--dataset-id is required (or set GCP_DATASET_ID in .env)")
+
+    # GOOGLE_APPLICATION_CREDENTIALS is read automatically from the environment
+    # (set it in .env or export it in your shell before running)
     client = bigquery.Client(project=args.project_id)
 
     print("Starting BigQuery Schema Migrator (Python)...")

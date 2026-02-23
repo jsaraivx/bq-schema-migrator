@@ -12,9 +12,9 @@ views/*.sql
 scheduled_queries/*.sql
 
 # GCP Service Account keys (NEVER commit these)
-*.json
-service-account*.json
-credentials*.json
+credentials/*.json
+credentials/service-account*.json
+credentials/credentials*.json
 
 # Python virtual environments
 .venv/

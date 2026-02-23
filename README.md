@@ -4,6 +4,8 @@
 
 A minimalist framework combining **pure SQL** with **Python** to manage the lifecycle of tables, views, and Scheduled Queries in Google BigQuery. No ORMs, no IaC abstractions — just clean SQL orchestrated via the GCP official API.
 
+> **Requirements:** Python 3.9+ · `google-cloud-bigquery` · `google-cloud-bigquery-datatransfer` · `python-dotenv`
+
 ---
 
 ## Table of Contents
@@ -98,16 +100,26 @@ source .venv/bin/activate  # macOS/Linux
 
 # 3. Install dependencies
 pip install -r requirements.txt
+
+# 4. Set up your environment variables
+cd bigquery-schema-migrator
+cp .env.example .env
+# Edit .env with your values
 ```
 
-### Authenticating with a Service Account
+### Environment Variables (`.env`)
 
-```bash
-# Point to your Service Account JSON key file
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your-service-account.json"
-```
+All configuration can be set in a `.env` file inside `bigquery-schema-migrator/`. CLI arguments always take precedence over `.env` values.
 
-> **Note:** Never commit `.json` credential files to the repository. They are already protected by `.gitignore`.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | — | Path to your Service Account JSON key |
+| `GCP_PROJECT_ID` | ✅ | — | GCP project ID |
+| `GCP_DATASET_ID` | ✅ | — | BigQuery dataset ID |
+| `GCP_LOCATION` | ☑️ | `US` | Dataset region (e.g. `southamerica-east1`) |
+| `GCP_SCHEDULE` | ☑️ | `every 1 hours` | Scheduled Query frequency |
+
+> **Security:** `.env` is listed in `.gitignore` and will never be committed. Never commit Service Account JSON files either.
 
 ---
 
@@ -120,19 +132,13 @@ Runs all files in `migrations/` (in order), then all files in `views/`.
 ```bash
 cd bigquery-schema-migrator
 
+# Option A: using .env (recommended for local dev)
+python run_migrations.py
+
+# Option B: passing args explicitly (recommended for CI/CD)
 python run_migrations.py \
   --project-id=YOUR_GCP_PROJECT \
   --dataset-id=YOUR_DATASET
-```
-
-**Examples:**
-
-```bash
-# Personal testing environment
-python run_migrations.py --project-id=my-personal-project --dataset-id=staging_db
-
-# Production environment (via CI/CD)
-python run_migrations.py --project-id=my-prod-project --dataset-id=reporting_db
 ```
 
 ### Deploy Scheduled Queries
@@ -142,13 +148,16 @@ Creates the scheduled routines in the BigQuery Data Transfer Service.
 ```bash
 cd bigquery-schema-migrator
 
+# Option A: using .env
+python deploy_schedules.py
+
+# Option B: passing args explicitly
 python deploy_schedules.py \
   --project-id=YOUR_GCP_PROJECT \
   --dataset-id=YOUR_DATASET \
-  --schedule="every 1 hours"  # Optional, default: every 1 hours
+  --location=southamerica-east1 \
+  --schedule="every 1 hours"
 ```
-
-> **⚠️ Heads up — Location:** `deploy_schedules.py` uses `US` as the default location for the Data Transfer API. If your dataset is in another region (e.g. `southamerica-east1`), edit the `parent` variable on line 19 of the file.
 
 ---
 

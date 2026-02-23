@@ -1,25 +1,51 @@
 import os
 import glob
 import argparse
+from dotenv import load_dotenv
 from google.cloud import bigquery_datatransfer_v1
 from google.protobuf.struct_pb2 import Struct
 
+# Load variables from .env file (if present). CLI args take precedence.
+load_dotenv()
+
 def main():
     parser = argparse.ArgumentParser(description="Deploy Scheduled Queries to BigQuery")
-    parser.add_argument("--project-id", required=True, help="GCP project ID")
-    parser.add_argument("--dataset-id", required=True, help="BigQuery dataset ID")
-    parser.add_argument("--schedule", default="every 1 hours", help="Schedule expression")
+    parser.add_argument(
+        "--project-id",
+        default=os.getenv("GCP_PROJECT_ID"),
+        help="GCP project ID (or set GCP_PROJECT_ID in .env)",
+    )
+    parser.add_argument(
+        "--dataset-id",
+        default=os.getenv("GCP_DATASET_ID"),
+        help="BigQuery dataset ID (or set GCP_DATASET_ID in .env)",
+    )
+    parser.add_argument(
+        "--location",
+        default=os.getenv("GCP_LOCATION", "US"),
+        help="BigQuery dataset location (or set GCP_LOCATION in .env, default: US)",
+    )
+    parser.add_argument(
+        "--schedule",
+        default=os.getenv("GCP_SCHEDULE", "every 1 hours"),
+        help="Schedule expression (or set GCP_SCHEDULE in .env, default: every 1 hours)",
+    )
     args = parser.parse_args()
+
+    if not args.project_id:
+        parser.error("--project-id is required (or set GCP_PROJECT_ID in .env)")
+    if not args.dataset_id:
+        parser.error("--dataset-id is required (or set GCP_DATASET_ID in .env)")
 
     # Client for the Data Transfer Service (responsible for Scheduled Queries)
     client = bigquery_datatransfer_v1.DataTransferServiceClient()
 
-    # The parent represents the project and region.
-    # NOTE: If your dataset is in a different region (e.g. 'southamerica-east1'),
-    # change 'US' below to match your dataset's location.
-    parent = f"projects/{args.project_id}/locations/US"
+    # The parent represents the project + region.
+    # Set GCP_LOCATION in .env or pass --location if your dataset is not in 'US'.
+    parent = f"projects/{args.project_id}/locations/{args.location}"
 
     print("Starting Scheduled Queries deployment to BigQuery (Python)...")
+    print(f"Target: {args.project_id}.{args.dataset_id} | Location: {args.location} | Schedule: {args.schedule}")
 
     query_files = sorted(glob.glob("scheduled_queries/*.sql"))
     if not query_files:

@@ -1,0 +1,49 @@
+# -------------------------------------------------------
+# BigQuery Schema Migrator - .gitignore
+# -------------------------------------------------------
+# SQL files in these directories contain client-specific
+# schema definitions and business logic that must NOT be
+# committed to a public repository.
+# -------------------------------------------------------
+
+# Client-specific SQL migrations and queries
+bigquery-schema-migrator/migrations/*.sql
+bigquery-schema-migrator/views/*.sql
+bigquery-schema-migrator/scheduled_queries/*.sql
+
+# GCP Service Account keys (NEVER commit these)
+*.json
+service-account*.json
+credentials*.json
+
+# Python virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment variable files
+.env
+.env.*
+!.env.example
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Agent
+Agent.md
+.agent/
+.claude/
+.gemini/
+.cursor/
+.cursorrules/

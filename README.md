@@ -82,7 +82,10 @@ All options can be passed as CLI args (they override `.env`):
 python migrate.py --project my-project --dataset my_dataset --location us-east1
 ```
 
+> Run `python migrate.py -h` or `python migrate.py --help` to see all available options.
+
 ---
+
 
 ## Migration file naming
 
@@ -118,15 +121,9 @@ DELETE FROM `${PROJECT}.${DATASET}.my_table` WHERE ...;
 
 ---
 
+## CI/CD
 
-### Pipeline behavior
-
-| Trigger | Step | Action |
-|---|---|---|
-| Any pull request | Validate & Dry Run | `python migrate.py --dry-run` — no changes |
-| Merge to `main` | Deploy to Dev | Runs automatically |
-| Merge to `main` | Deploy to Staging | Manual trigger |
-| Merge to `main` | Deploy to Prod | Manual trigger |
+> **Note:** This repository does not include a CI/CD configuration. Bitbucket Pipelines setup (with deployment variables per environment) can be managed separately in the client-specific deployment repository.
 
 ---
 

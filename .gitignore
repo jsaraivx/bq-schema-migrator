@@ -7,9 +7,9 @@
 # -------------------------------------------------------
 
 # Client-specific SQL migrations and queries
-bigquery-schema-migrator/migrations/*.sql
-bigquery-schema-migrator/views/*.sql
-bigquery-schema-migrator/scheduled_queries/*.sql
+migrations/*.sql
+views/*.sql
+scheduled_queries/*.sql
 
 # GCP Service Account keys (NEVER commit these)
 *.json

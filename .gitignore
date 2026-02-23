@@ -8,8 +8,6 @@
 
 # Client-specific SQL migrations and queries
 migrations/*.sql
-views/*.sql
-scheduled_queries/*.sql
 
 # GCP Service Account keys (NEVER commit these)
 credentials/*.json

@@ -1,293 +1,138 @@
 # BigQuery Schema Migrator
 
-> **Single Source of Truth** for schemas and routines in BigQuery — versioned, secure, and CI/CD-ready.
+Schema migration tool for BigQuery — runs SQL scripts in sequential order with idempotency control, similar to Flyway/Liquibase. Each script runs exactly once.
 
-A minimalist framework combining **pure SQL** with **Python** to manage the lifecycle of tables, views, and Scheduled Queries in Google BigQuery. No ORMs, no IaC abstractions — just clean SQL orchestrated via the GCP official API.
+## How it works
 
-> **Requirements:** Python 3.9+ · `google-cloud-bigquery` · `google-cloud-bigquery-datatransfer` · `python-dotenv`
-
----
-
-## Table of Contents
-
-- [Project Philosophy](#project-philosophy)
-- [Folder Structure](#folder-structure)
-- [Directory Business Rules](#directory-business-rules)
-- [Setup and Installation](#setup-and-installation)
-- [How to Run](#how-to-run)
-- [Naming Conventions](#naming-conventions)
-- [Adding New Objects](#adding-new-objects)
-- [CI/CD](#cicd)
-- [FAQ](#faq)
+- Migrations live in `migrations/` as `V00001_description.sql` files
+- A `schema_migrations` control table in BigQuery tracks every execution (checksum SHA256, timing, success)
+- Scripts with a `-- @scheduled` header are deployed as BigQuery Scheduled Queries via the Data Transfer API instead of being run directly
+- If a migration fails, execution stops — subsequent scripts are not run
 
 ---
 
-## Project Philosophy
-
-| Principle | Decision |
-|---|---|
-| **Full control** | Pure SQL, no code generation |
-| **Data safety** | `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE` in migrations — never `CREATE OR REPLACE TABLE` |
-| **Idempotency** | `CREATE OR REPLACE VIEW` ensures safe re-execution with no side effects |
-| **Traceability** | Versioned prefixes (`V1__`, `V2__`) guarantee clear execution order and history |
-| **Environment flexibility** | `{project_id}` and `{dataset_id}` placeholders in SQL, resolved at runtime by Python |
-
----
-
-## Folder Structure
+## Project structure
 
 ```
 bigquery-schema-migrator/
-├── credentials/                # Service Account JSON key (git-ignored)
-│   └── your-key.json           # Any filename — auto-discovered at runtime
-├── migrations/                 # Incremental DDLs (tables, ALTER TABLE)
-│   └── V1__create_*.sql
-├── views/                      # Idempotent views (dedup, transformations)
-│   └── v_*.sql
-├── scheduled_queries/          # Scheduled DMLs (cleanup, deduplication)
-│   └── *.sql
-├── credentials.py              # Auth helper: auto-discovers SA key from credentials/
-├── run_migrations.py           # Orchestrator: runs migrations + views
-├── deploy_schedules.py         # Orchestrator: creates/updates Scheduled Queries in GCP
-├── .env.example                # Environment variable template
-└── requirements.txt
+├── migrate.py                  # Single entry point
+├── credentials.py              # SA key auto-discovery
+├── migrations/
+│   ├── V00001_create_table_checklists.sql
+│   ├── V00002_create_view_checklists.sql
+│   ├── V00003_create_compaction_checklists.sql    # -- @scheduled
+│   ├── V00004_create_table_jobperiods.sql
+│   ├── V00005_create_view_jobperiods.sql
+│   ├── V00006_create_compaction_jobperiods.sql    # -- @scheduled
+│   ├── V00007_create_table_projectcyclecriteria.sql
+│   ├── V00008_create_view_projectcyclecriteria.sql
+│   └── V00009_create_compaction_projectcyclecriteria.sql  # -- @scheduled
+├── requirements.txt
+├── .env.example
+└── credentials/                # gitignored — place your SA key here
 ```
 
 ---
 
-## Directory Business Rules
-
-### `migrations/` — Incremental Scripts
-
-- **Used for:** table creation and schema changes (`ALTER TABLE`)
-- **Naming pattern:** `V{n}__{description}.sql` (e.g. `V1__create_users.sql`, `V2__add_column_status.sql`)
-- **Execution order:** alphabetical — the `V1__`, `V2__` prefix guarantees correct sequence
-- **⛔ FORBIDDEN:** `CREATE OR REPLACE TABLE` — would destroy historical data from append-only tables
-- **✅ REQUIRED:** `CREATE TABLE IF NOT EXISTS` for new tables; `ALTER TABLE` for changes
-
-### `views/` — Idempotent Scripts
-
-- **Used for:** deduplication views, transformations, reports
-- **Naming pattern:** `v_{base_table_name}.sql`
-- **✅ REQUIRED:** `CREATE OR REPLACE VIEW` — ensures full idempotency (safe to re-run at any time)
-
-### `scheduled_queries/` — Scheduled DMLs
-
-- **Used for:** cleanup and deduplication routines on the physical table (e.g. `DELETE` dedup)
-- **Naming pattern:** `{action}_{table}.sql` (e.g. `cleanup_projectcyclecriteria.sql`)
-- **Deployment:** managed by `deploy_schedules.py` via BigQuery Data Transfer API
-
----
-
-## Setup and Installation
-
-### Prerequisites
-
-- Python 3.9+
-- A **Service Account** in GCP with the following permissions on the target project/dataset:
-  - `roles/bigquery.dataEditor`
-  - `roles/bigquery.jobUser`
-  - `roles/bigquery.dataViewer`
-  - `roles/bigquerydatatransfer.editor` *(only required for `deploy_schedules.py`)*
-
-### Installation
+## Local setup
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-username/bigquery-schema-migrator.git
-cd bigquery-schema-migrator
+# 1. Create and activate a virtual environment
+python -m venv venv && source venv/bin/activate
 
-# 2. Create and activate a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# or: .venv\Scripts\activate  # Windows
-
-# 3. Install dependencies
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 4. Set up your environment variables
-cd bigquery-schema-migrator
+# 3. Configure environment
 cp .env.example .env
-# Edit .env with your values
+# Edit .env with your GCP_PROJECT_ID, GCP_DATASET_ID, GCP_LOCATION
+
+# 4. Set up credentials (choose one):
+#    Option A — drop your .json SA key into credentials/ (auto-discovered)
+#    Option B — set GOOGLE_APPLICATION_CREDENTIALS in .env
 ```
 
-### Service Account Authentication
+### `.env` variables
 
-The scripts use `credentials.py` to resolve the Service Account key automatically. The priority order is:
-
-| Priority | Source | Description |
+| Variable | Description | Default |
 |---|---|---|
-| 1st | `GOOGLE_APPLICATION_CREDENTIALS` env var | Set explicitly in `.env` or shell — always wins |
-| 2nd | `credentials/*.json` (auto-discovery) | Drop **any** `.json` file in `credentials/` — filename doesn't matter |
-| Error | Nothing found | Script fails with a descriptive message |
+| `GCP_PROJECT_ID` | GCP project ID | *(required)* |
+| `GCP_DATASET_ID` | BigQuery dataset ID | *(required)* |
+| `GCP_LOCATION` | Dataset region | `US` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Path to SA key (overrides auto-discovery) | — |
 
-> **Security:** `credentials/` is listed in `.gitignore`. JSON key files inside it will never be committed to the repository.
+---
 
-**For local development (Option A — recommended):**
+## Usage
+
 ```bash
-# Just drop your key file into the folder:
-cp ~/Downloads/my-sa-key.json credentials/
-# No .env change needed — it will be discovered automatically.
+# Check migration status (applied + pending)
+python migrate.py --status
+
+# Dry-run: see what would be applied without executing anything
+python migrate.py --dry-run
+
+# Apply all pending migrations
+python migrate.py
 ```
 
-**For CI/CD (Option B):**
-```bash
-# Set GOOGLE_APPLICATION_CREDENTIALS via your pipeline's secret manager,
-# or use a provider like google-github-actions/auth (see CI/CD section).
-```
-
-### Environment Variables (`.env`)
-
-All configuration can be set in a `.env` file at the project root. CLI arguments always take precedence over `.env` values.
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `GOOGLE_APPLICATION_CREDENTIALS` | ☑️ | auto | Path to SA JSON key — optional if `credentials/*.json` exists |
-| `GCP_PROJECT_ID` | ✅ | — | GCP project ID |
-| `GCP_DATASET_ID` | ✅ | — | BigQuery dataset ID |
-| `GCP_LOCATION` | ☑️ | `US` | Dataset region (e.g. `southamerica-east1`) |
-| `GCP_SCHEDULE` | ☑️ | `every 1 hours` | Scheduled Query frequency |
+All options can be passed as CLI args (they override `.env`):
 
 ```bash
-cp .env.example .env
-# Fill in GCP_PROJECT_ID and GCP_DATASET_ID at minimum
+python migrate.py --project my-project --dataset my_dataset --location us-east1
 ```
 
 ---
 
-## How to Run
+## Migration file naming
 
-### Run Migrations and Views
-
-Runs all files in `migrations/` (in order), then all files in `views/`.
-
-```bash
-cd bigquery-schema-migrator
-
-# Option A: using .env (recommended for local dev)
-python run_migrations.py
-
-# Option B: passing args explicitly (recommended for CI/CD)
-python run_migrations.py \
-  --project-id=YOUR_GCP_PROJECT \
-  --dataset-id=YOUR_DATASET
+```
+V{5_digits}_{description}.sql
 ```
 
-### Deploy Scheduled Queries
+Examples:
+- `V00001_create_table_checklists.sql`
+- `V00002_create_view_checklists.sql`
+- `V00010_add_column_foo.sql`
 
-Creates the scheduled routines in the BigQuery Data Transfer Service.
+## SQL placeholders
 
-```bash
-cd bigquery-schema-migrator
+Use `${PROJECT}` and `${DATASET}` in SQL — substituted at runtime:
 
-# Option A: using .env
-python deploy_schedules.py
+```sql
+CREATE TABLE IF NOT EXISTS `${PROJECT}.${DATASET}.my_table` ( ... );
+```
 
-# Option B: passing args explicitly
-python deploy_schedules.py \
-  --project-id=YOUR_GCP_PROJECT \
-  --dataset-id=YOUR_DATASET \
-  --location=southamerica-east1 \
-  --schedule="every 1 hours"
+## Scheduled queries
+
+Add a `-- @scheduled` header to deploy via the Data Transfer API instead of executing directly:
+
+```sql
+-- @scheduled
+-- @display_name: compaction_my_table
+-- @schedule: every day 04:00
+-- @description: Remove duplicate records
+
+DELETE FROM `${PROJECT}.${DATASET}.my_table` WHERE ...;
 ```
 
 ---
 
-## Naming Conventions
 
-| Object | Convention | Example |
+### Pipeline behavior
+
+| Trigger | Step | Action |
 |---|---|---|
-| Table migration | `V{n}__{action}_{table}.sql` | `V1__create_orders.sql` |
-| Schema change | `V{n}__add_{column}_{table}.sql` | `V2__add_status_orders.sql` |
-| View | `v_{base_table}.sql` | `v_orders.sql` |
-| Scheduled Query | `{action}_{table}.sql` | `cleanup_orders.sql` |
+| Any pull request | Validate & Dry Run | `python migrate.py --dry-run` — no changes |
+| Merge to `main` | Deploy to Dev | Runs automatically |
+| Merge to `main` | Deploy to Staging | Manual trigger |
+| Merge to `main` | Deploy to Prod | Manual trigger |
 
 ---
 
-## Adding New Objects
+## Authentication
 
-### New Table
-
-1. Create `migrations/V{next_number}__create_{table}.sql`
-2. Use `CREATE TABLE IF NOT EXISTS \`{project_id}.{dataset_id}.{table}\``
-3. (Optional) Create `views/v_{table}.sql` for deduplication using `CREATE OR REPLACE VIEW`
-4. (Optional) Create `scheduled_queries/cleanup_{table}.sql` with the DML cleanup logic
-
-### Schema Change
-
-1. Create `migrations/V{next_number}__add_{column}_{table}.sql`
-2. Use `ALTER TABLE \`{project_id}.{dataset_id}.{table}\` ADD COLUMN IF NOT EXISTS ...`
-
-### New View
-
-1. Create `views/v_{table}.sql`
-2. Use `CREATE OR REPLACE VIEW \`{project_id}.{dataset_id}.v_{table}\``
-
----
-
-## CI/CD
-
-Example workflow with **GitHub Actions**:
-
-```yaml
-# .github/workflows/migrate.yml
-name: BigQuery Schema Migration
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  migrate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: pip install -r bigquery-schema-migrator/requirements.txt
-
-      - name: Authenticate to GCP
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-      - name: Run Migrations
-        run: |
-          cd bigquery-schema-migrator
-          python run_migrations.py \
-            --project-id=${{ vars.GCP_PROJECT_ID }} \
-            --dataset-id=${{ vars.GCP_DATASET_ID }}
-
-      - name: Deploy Scheduled Queries
-        run: |
-          cd bigquery-schema-migrator
-          python deploy_schedules.py \
-            --project-id=${{ vars.GCP_PROJECT_ID }} \
-            --dataset-id=${{ vars.GCP_DATASET_ID }}
-```
-
-**Secrets/Variables in GitHub:**
-- `GCP_SA_KEY` → Full Service Account JSON *(Secret)*
-- `GCP_PROJECT_ID` → GCP project ID *(Variable)*
-- `GCP_DATASET_ID` → BigQuery dataset ID *(Variable)*
-
----
-
-## FAQ
-
-**Why pure SQL instead of Terraform/dbt?**
-> Full control with no abstractions. The SQL you write is exactly what runs in BigQuery — no surprises. Ideal for teams that know BigQuery's syntax well and want to keep the stack simple.
-
-**Why Python instead of pure Bash?**
-> Python provides structured error handling, elegant environment placeholder substitution, native integration with `google-cloud-bigquery` and `google-cloud-bigquery-datatransfer` libraries, and works out of the box in any CI/CD runner without extra dependencies.
-
-**Can I ever use `CREATE OR REPLACE TABLE`?**
-> Never inside `migrations/`. That directory is exclusively for append-only tables (e.g. Kafka ingestion). `CREATE OR REPLACE TABLE` would delete all historical data. For full table recreations, prefer `DROP TABLE IF EXISTS` + `CREATE TABLE IF NOT EXISTS` in manually controlled scripts, outside of the pipeline.
-
-**What are the `{project_id}` and `{dataset_id}` placeholders in the SQL files?**
-> They are variables replaced at runtime by Python before sending the query to BigQuery. This allows the same SQL files to be used across multiple environments (dev, staging, prod) without modifying the SQL source files.
+| Context | Method |
+|---|---|
+| Local dev | Drop `.json` key in `credentials/` (auto-discovered) or set `GOOGLE_APPLICATION_CREDENTIALS` in `.env` |
+| GKE / Cloud Run | Workload Identity (no key file needed) |

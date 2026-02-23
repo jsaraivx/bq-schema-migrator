@@ -14,19 +14,16 @@ Schema migration tool for BigQuery — runs SQL scripts in sequential order with
 ## Project structure
 
 ```
-bigquery-schema-migrator/
+bq-schema-migrator/
 ├── migrate.py                  # Single entry point
 ├── credentials.py              # SA key auto-discovery
+├── conftest.py                 # pytest path config
 ├── migrations/
-│   ├── V00001_create_table_checklists.sql
-│   ├── V00002_create_view_checklists.sql
-│   ├── V00003_create_compaction_checklists.sql    # -- @scheduled
-│   ├── V00004_create_table_jobperiods.sql
-│   ├── V00005_create_view_jobperiods.sql
-│   ├── V00006_create_compaction_jobperiods.sql    # -- @scheduled
-│   ├── V00007_create_table_projectcyclecriteria.sql
-│   ├── V00008_create_view_projectcyclecriteria.sql
-│   └── V00009_create_compaction_projectcyclecriteria.sql  # -- @scheduled
+│   ├── V00001_example.sql
+│   ├── V00002_example_scheduled.sql      # -- @scheduled
+│   └── ...
+├── tests/
+│   └── test_migrate.py
 ├── requirements.txt
 ├── .env.example
 └── credentials/                # gitignored — place your SA key here
@@ -38,7 +35,7 @@ bigquery-schema-migrator/
 
 ```bash
 # 1. Create and activate a virtual environment
-python -m venv venv && source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
@@ -82,10 +79,9 @@ All options can be passed as CLI args (they override `.env`):
 python migrate.py --project my-project --dataset my_dataset --location us-east1
 ```
 
-> Run `python migrate.py -h` or `python migrate.py --help` to see all available options.
+> Run `python migrate.py --help` to see all available options.
 
 ---
-
 
 ## Migration file naming
 
@@ -94,9 +90,8 @@ V{5_digits}_{description}.sql
 ```
 
 Examples:
-- `V00001_create_table_checklists.sql`
-- `V00002_create_view_checklists.sql`
-- `V00010_add_column_foo.sql`
+- `V00001_example.sql`
+- `V00002_example_scheduled.sql`
 
 ## SQL placeholders
 
@@ -112,11 +107,40 @@ Add a `-- @scheduled` header to deploy via the Data Transfer API instead of exec
 
 ```sql
 -- @scheduled
--- @display_name: compaction_my_table
--- @schedule: every day 04:00
+-- @display_name: compaction_orders
+-- @schedule: every day 03:00
 -- @description: Remove duplicate records
 
-DELETE FROM `${PROJECT}.${DATASET}.my_table` WHERE ...;
+DELETE FROM `${PROJECT}.${DATASET}.orders` WHERE ...;
+```
+
+---
+
+## Testing
+
+Unit tests cover all pure helper functions and credentials auto-discovery. **No BigQuery connection or GCP credentials required.**
+
+```bash
+# Run all tests
+pytest tests/ -v
+```
+
+What is covered:
+
+| Area | What is verified |
+|---|---|
+| Checksum (`sha256`) | Determinism, uniqueness, correct hex length |
+| File parsing (`extract_version`) | Valid filenames, full paths, invalid format raises clearly |
+| SQL substitution (`substitute_placeholders`) | `${PROJECT}` and `${DATASET}` replaced correctly in all positions |
+| Scheduled detection (`is_scheduled`) | Correct header detection, no false positives |
+| Header parsing (`parse_scheduled_metadata`) | `display_name`, `schedule`, `description` extracted correctly |
+| Credentials (`load_credentials`) | Env var priority, single-file auto-discovery, ambiguous/missing key errors |
+
+Useful flags:
+
+```bash
+pytest tests/ -v -k "sha256"   # filter by test name
+pytest tests/ --tb=short        # shorter tracebacks on failure
 ```
 
 ---

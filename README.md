@@ -38,14 +38,18 @@ A minimalist framework combining **pure SQL** with **Python** to manage the life
 
 ```
 bigquery-schema-migrator/
+├── credentials/                # Service Account JSON key (git-ignored)
+│   └── your-key.json           # Any filename — auto-discovered at runtime
 ├── migrations/                 # Incremental DDLs (tables, ALTER TABLE)
 │   └── V1__create_*.sql
 ├── views/                      # Idempotent views (dedup, transformations)
 │   └── v_*.sql
 ├── scheduled_queries/          # Scheduled DMLs (cleanup, deduplication)
 │   └── *.sql
+├── credentials.py              # Auth helper: auto-discovers SA key from credentials/
 ├── run_migrations.py           # Orchestrator: runs migrations + views
 ├── deploy_schedules.py         # Orchestrator: creates/updates Scheduled Queries in GCP
+├── .env.example                # Environment variable template
 └── requirements.txt
 ```
 
@@ -107,19 +111,47 @@ cp .env.example .env
 # Edit .env with your values
 ```
 
+### Service Account Authentication
+
+The scripts use `credentials.py` to resolve the Service Account key automatically. The priority order is:
+
+| Priority | Source | Description |
+|---|---|---|
+| 1st | `GOOGLE_APPLICATION_CREDENTIALS` env var | Set explicitly in `.env` or shell — always wins |
+| 2nd | `credentials/*.json` (auto-discovery) | Drop **any** `.json` file in `credentials/` — filename doesn't matter |
+| Error | Nothing found | Script fails with a descriptive message |
+
+> **Security:** `credentials/` is listed in `.gitignore`. JSON key files inside it will never be committed to the repository.
+
+**For local development (Option A — recommended):**
+```bash
+# Just drop your key file into the folder:
+cp ~/Downloads/my-sa-key.json credentials/
+# No .env change needed — it will be discovered automatically.
+```
+
+**For CI/CD (Option B):**
+```bash
+# Set GOOGLE_APPLICATION_CREDENTIALS via your pipeline's secret manager,
+# or use a provider like google-github-actions/auth (see CI/CD section).
+```
+
 ### Environment Variables (`.env`)
 
-All configuration can be set in a `.env` file inside `bigquery-schema-migrator/`. CLI arguments always take precedence over `.env` values.
+All configuration can be set in a `.env` file at the project root. CLI arguments always take precedence over `.env` values.
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | — | Path to your Service Account JSON key |
+| `GOOGLE_APPLICATION_CREDENTIALS` | ☑️ | auto | Path to SA JSON key — optional if `credentials/*.json` exists |
 | `GCP_PROJECT_ID` | ✅ | — | GCP project ID |
 | `GCP_DATASET_ID` | ✅ | — | BigQuery dataset ID |
 | `GCP_LOCATION` | ☑️ | `US` | Dataset region (e.g. `southamerica-east1`) |
 | `GCP_SCHEDULE` | ☑️ | `every 1 hours` | Scheduled Query frequency |
 
-> **Security:** `.env` is listed in `.gitignore` and will never be committed. Never commit Service Account JSON files either.
+```bash
+cp .env.example .env
+# Fill in GCP_PROJECT_ID and GCP_DATASET_ID at minimum
+```
 
 ---
 

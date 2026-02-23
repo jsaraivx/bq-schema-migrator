@@ -2,6 +2,7 @@ import os
 import glob
 import argparse
 from dotenv import load_dotenv
+from credentials import load_credentials
 from google.cloud import bigquery_datatransfer_v1
 from google.protobuf.struct_pb2 import Struct
 
@@ -36,6 +37,9 @@ def main():
         parser.error("--project-id is required (or set GCP_PROJECT_ID in .env)")
     if not args.dataset_id:
         parser.error("--dataset-id is required (or set GCP_DATASET_ID in .env)")
+
+    # Auto-discover credentials from credentials/ folder (or use GOOGLE_APPLICATION_CREDENTIALS)
+    load_credentials()
 
     # Client for the Data Transfer Service (responsible for Scheduled Queries)
     client = bigquery_datatransfer_v1.DataTransferServiceClient()
